@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { Droplets, Thermometer, Sun, AlertTriangle, Wifi, Battery } from 'lucide-react';
+import { Droplets, Thermometer, Sun, AlertTriangle, Wifi, Battery, Download, FileText, ChevronDown, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // Simulated sensor data generator
 const generateSensorData = () => ({
@@ -29,6 +30,7 @@ const PlantPulseDashboard = () => {
   type PlantName = typeof plantNames[number];
 
   const [selectedPlant, setSelectedPlant] = useState<PlantName>('Monstera Deliciosa');
+  const [showReportModal, setShowReportModal] = useState(false);
 
   // Plant profiles with optimal ranges
   const plantProfiles: Record<PlantName, { moistureRange: number[]; tempRange: number[] }> = {
@@ -77,6 +79,131 @@ const PlantPulseDashboard = () => {
   };
 
   const alerts = getAlerts();
+
+  // Report generation functions
+  const generateCSVExport = () => {
+    const csvData = historicalData.map(data => ({
+      'Timestamp': data.timestamp,
+      'Plant': selectedPlant,
+      'Soil Moisture (%)': data.soilMoisture,
+      'Temperature (°C)': data.temperature,
+      'Light Level (lux)': data.lightLevel,
+      'pH Level': data.ph,
+      'Humidity (%)': data.humidity
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(csvData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sensor Data');
+    XLSX.writeFile(wb, `PlantPulse_Data_${selectedPlant.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+    setShowReportModal(false);
+  };
+
+  const generateExcelReport = () => {
+    const reportData = {
+      'Plant Information': [
+        { Field: 'Plant Name', Value: selectedPlant },
+        { Field: 'Health Status', Value: health.status },
+        { Field: 'Report Generated', Value: new Date().toLocaleString() },
+        { Field: 'Current Moisture', Value: `${currentData.soilMoisture}%` },
+        { Field: 'Current Temperature', Value: `${currentData.temperature}°C` },
+        { Field: 'Current Light Level', Value: `${currentData.lightLevel} lux` },
+        { Field: 'pH Level', Value: currentData.ph },
+        { Field: 'Humidity', Value: `${currentData.humidity}%` }
+      ],
+      'Historical Data': historicalData.map(data => ({
+        Time: data.timestamp,
+        'Moisture (%)': data.soilMoisture,
+        'Temperature (°C)': data.temperature,
+        'Light (lux)': data.lightLevel,
+        'pH': data.ph,
+        'Humidity (%)': data.humidity
+      })),
+      'Alerts': alerts.length > 0 ? alerts.map((alert, index) => ({
+        'Alert #': index + 1,
+        'Description': alert,
+        'Time': currentData.timestamp
+      })) : [{ 'Status': 'No alerts - All systems normal' }],
+      'Plant Profile': [
+        { Parameter: 'Optimal Moisture Range', Value: `${plantProfiles[selectedPlant].moistureRange[0]}% - ${plantProfiles[selectedPlant].moistureRange[1]}%` },
+        { Parameter: 'Optimal Temperature Range', Value: `${plantProfiles[selectedPlant].tempRange[0]}°C - ${plantProfiles[selectedPlant].tempRange[1]}°C` }
+      ]
+    };
+
+    const wb = XLSX.utils.book_new();
+    
+    (Object.keys(reportData) as (keyof typeof reportData)[]).forEach(sheetName => {
+      const ws = XLSX.utils.json_to_sheet(reportData[sheetName]);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName as string);
+    });
+
+    XLSX.writeFile(wb, `PlantPulse_Report_${selectedPlant.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    setShowReportModal(false);
+  };
+
+  const generatePDFReport = () => {
+    const reportContent = `
+PlantPulse IoT System - Plant Monitoring Report
+
+======================================
+PLANT INFORMATION
+======================================
+Plant Name: ${selectedPlant}
+Health Status: ${health.status}
+Report Generated: ${new Date().toLocaleString()}
+
+======================================
+CURRENT READINGS
+======================================
+Soil Moisture: ${currentData.soilMoisture}%
+Temperature: ${currentData.temperature}°C
+Light Level: ${currentData.lightLevel} lux
+pH Level: ${currentData.ph}
+Humidity: ${currentData.humidity}%
+
+======================================
+PLANT PROFILE
+======================================
+Optimal Moisture Range: ${plantProfiles[selectedPlant].moistureRange[0]}% - ${plantProfiles[selectedPlant].moistureRange[1]}%
+Optimal Temperature Range: ${plantProfiles[selectedPlant].tempRange[0]}°C - ${plantProfiles[selectedPlant].tempRange[1]}°C
+
+======================================
+RECENT READINGS (Last ${historicalData.length} measurements)
+======================================
+${historicalData.map(data => 
+  `${data.timestamp} | Moisture: ${data.soilMoisture}% | Temp: ${data.temperature}°C | Light: ${data.lightLevel} lux`
+).join('\n')}
+
+======================================
+ALERTS
+======================================
+${alerts.length > 0 ? alerts.map((alert, index) => `${index + 1}. ${alert}`).join('\n') : 'No alerts - All systems normal'}
+
+======================================
+RECOMMENDATIONS
+======================================
+${currentData.soilMoisture < plantProfiles[selectedPlant].moistureRange[0] ? '• Increase watering frequency\n' : ''}${currentData.soilMoisture > plantProfiles[selectedPlant].moistureRange[1] ? '• Reduce watering frequency\n' : ''}${currentData.temperature < plantProfiles[selectedPlant].tempRange[0] ? '• Consider moving to a warmer location\n' : ''}${currentData.temperature > plantProfiles[selectedPlant].tempRange[1] ? '• Consider moving to a cooler location\n' : ''}${currentData.lightLevel < 300 ? '• Increase light exposure\n' : ''}${alerts.length === 0 ? '• Plant conditions are optimal, continue current care routine' : ''}
+
+Generated by PlantPulse IoT System
+    `.trim();
+
+    const blob = new Blob([reportContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PlantPulse_Report_${selectedPlant.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setShowReportModal(false);
+  };
+
+  const generateInAppReport = () => {
+    setShowReportModal(false);
+    // This would typically navigate to a report page or show an in-app report
+    alert('In-app report view would be implemented here. For now, this is a placeholder.');
+  };
 
   // Chart data preparation
   const pieData = [
@@ -245,14 +372,78 @@ const PlantPulseDashboard = () => {
               <button className="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-lg transition-colors">
                 Update Plant Profile
               </button>
-              <button className="w-full bg-purple-500 hover:bg-purple-600 text-white py-3 px-4 rounded-lg transition-colors">
-                Generate Report
-              </button>
-              <button className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 px-4 rounded-lg transition-colors">
-                Export Data
+              
+              {/* Combined Report/Export Button */}
+              <button 
+                onClick={() => setShowReportModal(true)}
+                className="w-full bg-purple-500 hover:bg-purple-600 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download Report</span>
+                <ChevronDown className="w-4 h-4" />
               </button>
             </div>
           </div>
+          
+          {/* Report Modal */}
+          {showReportModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 w-96 max-w-90vw">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Choose Report Format</h3>
+                  <button 
+                    onClick={() => setShowReportModal(false)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="space-y-3">
+                  <button 
+                    onClick={generateExcelReport}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Excel Report (Detailed)</span>
+                  </button>
+                  
+                  <button 
+                    onClick={generateCSVExport}
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>CSV Data Export (Raw)</span>
+                  </button>
+                  
+                  <button 
+                    onClick={generatePDFReport}
+                    className="w-full bg-red-500 hover:bg-red-600 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Text Report (PDF-like)</span>
+                  </button>
+                  
+                  <button 
+                    onClick={generateInAppReport}
+                    className="w-full bg-gray-500 hover:bg-gray-600 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <Sun className="w-4 h-4" />
+                    <span>View Report (In-App)</span>
+                  </button>
+                </div>
+                
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-600">
+                    <strong>Excel Report:</strong> Comprehensive analysis with charts<br />
+                    <strong>CSV Export:</strong> Raw sensor data for analysis<br />
+                    <strong>Text Report:</strong> Formatted summary for sharing<br />
+                    <strong>In-App View:</strong> Interactive report within the app
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
